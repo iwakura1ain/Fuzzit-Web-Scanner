@@ -1,0 +1,38 @@
+[
+    {
+        "base" : ["id"],
+        "type" : "MatchStringOutput",
+        "MatchStringOutput" : ["uid=", "gid=", "groups="]
+    }, 
+    {
+        "base" : ["cat", "/etc/passwd"],
+        "type" : "MatchStringOutput",
+        "MatchStringOutput" : ["root:x:0:0:root:", "daemon:x:1:1:daemon:"]
+    },
+    {
+        "base" : ["cat", "/tmp/foo"],
+        "type" : "MatchStringOutput",
+        "MatchStringOutput" : ["foo contents"]
+    },
+    {
+        "base" : ["id", ">", "/var/www/html/result.html"],
+        "type" : "MatchStringPage", 
+        "MatchStringPage" : ["url.com/result.html", "uid=", "gid=", "groups="]
+    },
+    {
+        "base" : ["nc", "192.168.123.100:1337"],
+        "type" : "ListenPort",
+        "ListenPort" : ["1337"]
+    },
+    {
+        "base" : ["sleep"],
+        "type" : "Wait",
+        "Wait" : ["20"]
+    },
+    {
+        "base" : ["MatchStatusCode"],
+        "type" : "MatchStatusCode",
+        "MatchStatusCode" : [200]
+    },
+    
+]
