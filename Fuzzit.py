@@ -9,12 +9,11 @@ WORDLIST=[]
 RULES=[]
 INJECTIONS = []
 VERBOSE=" "
- 
+
 OUTPUT="stdout"
 COOKIE=None
 SSL=False
 TYPE="get"
-
 
 def help():
     print("Usage: Fuzzit.py [RHOST] [WORDLIST] [RULE_FILE]")
@@ -34,8 +33,10 @@ def GetArgs():
     global OUTPUT
     global RULES
     global VERBOSE
-    
-    for arg in sys.argv:
+
+    offset = 0
+    for index in range(1, len(sys.argv)-1):
+        arg = sys.argv[index+offset]
         if(arg == "-h" or arg == "--help"):
             help()
 
@@ -43,19 +44,21 @@ def GetArgs():
             VERBOSE=arg[1:]
             print("Verbosity: " + VERBOSE)
             sys.argv.remove(arg)
+            offset -= 1
             
         elif(arg == "--type" or arg == "-t"):
-            TYPE = sys.argv[sys.argv.index(arg) + 1]
+            TYPE = sys.argv[index+offset+1]
             if(TYPE in ["post", "get", "status", "cookie"]):
                 print("Request type: " + TYPE)
-                sys.argv.pop(sys.argv.index(arg) + 1)
+                sys.argv.remove(TYPE)
                 sys.argv.remove(arg)
+                offset -= 1
             else:
-                print("Invalid request type... Quitting") #TODO: Add more request types
+                print("Wrong type...QUitting") #TODO: Add more request types
                 help()
-            
+      
         elif(arg == "--output" or arg == "-o"): #TODO: enable file output
-            output_dir = sys.argv[sys.argv.index(arg) + 1] 
+            #output_dir = sys.argv[sys.argv.index(arg) + 1 
             if(output_dir != "stdin"):
                 print("Output file: " + FILENAME)
                 OUTPUT = output_dir
@@ -64,23 +67,24 @@ def GetArgs():
             else: 
                 print("No file selected... Quitting")
                 help()
-                
+           
         elif(arg == "--cookie" or arg == "-c"):
-            COOKIE = sys.argv[sys.argv.index(arg) + 1]
-            sys.argv.pop(sys.argv.index(arg) + 1)
+            COOKIE = sys.argv[index+offset+1]
+            sys.argv.remove(COOKIE)
             sys.argv.remove(arg)
+            offset -= 1
             
         elif(arg == "--cookie-file"): 
-            cookie_dir = sys.argv[sys.argv.index(arg) + 1]
+            cookie_dir = sys.argv[index+offset+1]
             if(os.exists(cookie_dir)):
                 with open(cookie_dir, "r") as cookie:
                     COOKIE = cookie.read()                
             else:
                 print("Cookie file doesn't exist... Quitting")
                 sys.exit()
-            sys.argv.pop(sys.argv.index(arg) + 1)
+            sys.argv.remove(cookie_dir)
             sys.argv.remove(arg)
-            
+            offset -= 1 
 
     if(len(sys.argv) == 4):
         RHOST = sys.argv[1]
@@ -94,8 +98,8 @@ def GetArgs():
             RULES = simplejson.loads(rulefile.read())
                           
     else:
-        print("!!Argument Error!!")
-        help()
+       print("!!Argument Error!!") 
+       help()
 
 def IsSSL(rhost): #TODO: ssl support
     global SSL
@@ -106,8 +110,9 @@ def IsSSL(rhost): #TODO: ssl support
     else:
         print("SSL: Disabled")
 
+#Find the rule associated with the injection 
 def IsRuleCase(injection, rules_list):
-    if(TYPE=="status"):
+    if(TYPE=="status"): #Only applies the status scans
         injection = "MatchStatusCode"
         
     for rule in rules_list:
@@ -120,6 +125,7 @@ def IsRuleCase(injection, rules_list):
 
     return None
 
+#Matches a string from another page
 def CheckPageOutput(rule_args, response):
     try:
         page = requests.get(rule_args[0], params=injection, cookies=cookie,
@@ -134,13 +140,15 @@ def CheckPageOutput(rule_args, response):
     except HTTPError:
         print("ERROR: Could not find output page...")
         return False
-        
+
+#Matches a string from the response
 def CheckOutput(rule_args, response):
     for string in rule_args:
         if string not in response.content:
            return False
     return True
 
+#Matches the status code of the respone
 def MatchStatusCode(rule_args, response):
     for code in rule_args:
         if(response.status_code == code):
@@ -148,6 +156,7 @@ def MatchStatusCode(rule_args, response):
 
     return False
 
+#Calls the rule-check associated with the rule
 def LookupRule(rule, response):
     check_functions = { "MatchStringOutput": CheckOutput,
                         "MatchStringPage": CheckPageOutput,
@@ -263,7 +272,7 @@ def PrintInfo(response, injection, injectable):
         print("NEGATIVE: " + str(injection))
 
     if(VERBOSE[0] == "v"):
-        print(" ┣ Request URL: " + str(response.url))
+        print(" ┣ URL: " + str(response.url))
         print(" ┣ Status Code: " + str(response.status_code)+" "+str(response.reason)) 
         print(" ┣ Headers: \n " + str(response.headers)+"\n ┃")
         print(" ┗ Returned Cookies: " + str(response.cookies)+"\n") 
@@ -271,7 +280,7 @@ def PrintInfo(response, injection, injectable):
             print("======= RESPONSE =======")
             print(response.content)
             print("========================\n")
-            
+        
 def GetURL(rhost):
     url = []
     request = []
@@ -292,7 +301,8 @@ def GetURL(rhost):
     else:
         if(SSL): return "https://" + url_result, request_result
         else: return "http://" + url_result, request_result
-        
+
+#Returns a list of injection point indexes and a dictionary of non-injected values
 def GetInjectionPoints(input):
     injection_points = []
     non_injection_points = {}
@@ -313,6 +323,7 @@ def GetInjectionPoints(input):
     
     return injection_points, non_injection_points
 
+#Get the value of a non-injected value
 def GetPointValue(rhost, index):
     i = 1
     ch = []
@@ -322,7 +333,8 @@ def GetPointValue(rhost, index):
         i += 1
     
     return "".join(ch) 
-        
+
+#Get the name of a value        
 def GetPointName(rhost, index):
     i = 1
     ch = []
@@ -333,6 +345,7 @@ def GetPointName(rhost, index):
 
     return "".join(ch)
 
+#Map a line to an injection point in a url (for status type scans) 
 def MakeURLInjectionValues(injection_points, url):
     global INJECTIONS
 
@@ -344,7 +357,8 @@ def MakeURLInjectionValues(injection_points, url):
             offset += len(line) -1
 
             INJECTIONS.append("".join(url))
-        
+
+#Make a dictionary of values to send using recursion
 def MakeInjectionValues(injection_points, prev_index, prev_dict):
     global INJECTIONS
 
@@ -366,17 +380,19 @@ def MakeInjectionValues(injection_points, prev_index, prev_dict):
         sys.exit()
 
 def main():
-    print("Fuzzer by iwakura1ain...\n")
+    print("Fuzzit Web Scanner v0.4.1 by iwakura1ain...")
+    print("======== OPTIONS ========")
     GetArgs()
+    
 
     if(TYPE in ["get", "post"]):
         url = GetURL(RHOST)[0]
         injection_points, non_injections = GetInjectionPoints(RHOST)
 
-        print("\nGenerating injections...")
+        print("\n======== Generating Injections ========")
         MakeInjectionValues(injection_points, 0, non_injections)
 
-        print("\nScanning RHOST....")
+        print("\n======== Scanning RHOST ========")
         Scan(url, INJECTIONS, COOKIE)
 
     elif(TYPE in ["cookie"]):
@@ -384,10 +400,10 @@ def main():
         injection_points, non_injections = GetInjectionPoints(COOKIE)
         request_dict = GetInjectionPoints(request)[1]
 
-        print("\nGenerating injections...")
+        print("\n======== Generating Injections ========")
         MakeInjectionValues(injection_points, 0, non_injections)
 
-        print("Scanning RHOST....")
+        print("\n======== Scanning RHOST ========")
         Scan(url, request_dict, INJECTIONS )
 
     elif(TYPE in ["status"]):
@@ -395,10 +411,10 @@ def main():
         injection_points = GetInjectionPoints(url)[0]
         request_dict = GetInjectionPoints(request)
 
-        print("\nGenerating injections...")
+        print("\n======== Generating Injections ========")
         MakeURLInjectionValues(injection_points, list(url))
 
-        print("\nScanning RHOST....")
+        print("\n======== Scanning RHOST ========")
         Scan(INJECTIONS, request_dict, COOKIE)
         
     
