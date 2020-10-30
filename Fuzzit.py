@@ -4,14 +4,17 @@
 import sys, os
 import requests, simplejson
 
+#Input:
 RHOST=""
 WORDLIST=[]
 RULES=[]
 INJECTIONS = []
-VERBOSE=" "
 
-OUTPUT="stdout"
+#Options: 
+VERBOSE=" "
+HEADERS=None
 COOKIE=None
+OUTPUT=None
 SSL=False
 TYPE="get"
 
@@ -25,7 +28,7 @@ def help():
     print("-v, -vv")
         
     sys.exit()
-
+        
 def GetArgs():
     global RHOST
     global WORDLIST
@@ -35,8 +38,9 @@ def GetArgs():
     global VERBOSE
 
     offset = 0
-    for index in range(1, len(sys.argv)-1):
+    for index in range(1, len(sys.argv)):
         arg = sys.argv[index+offset]
+    
         if(arg == "-h" or arg == "--help"):
             help()
 
@@ -45,46 +49,51 @@ def GetArgs():
             print("Verbosity: " + VERBOSE)
             sys.argv.remove(arg)
             offset -= 1
+
+        elif(arg == "--headers" or arg == "-h"):
+            HEADERS = sys.argv[index+offset+1]
+            print("Headers: " + HEADERS)
+            sys.argv.remove(HEADERS)
+            sys.argv.remove(arg)
+            offset -= 2
             
         elif(arg == "--type" or arg == "-t"):
             TYPE = sys.argv[index+offset+1]
             if(TYPE in ["post", "get", "status", "cookie"]):
-                print("Request type: " + TYPE)
+                print("TYPE: " + TYPE)
                 sys.argv.remove(TYPE)
                 sys.argv.remove(arg)
-                offset -= 1
+                offset -= 2
             else:
-                print("Wrong type...QUitting") #TODO: Add more request types
+                print("Wrong type...Quitting") #TODO: Add more request types
                 help()
       
         elif(arg == "--output" or arg == "-o"): #TODO: enable file output
-            #output_dir = sys.argv[sys.argv.index(arg) + 1 
-            if(output_dir != "stdin"):
-                print("Output file: " + FILENAME)
-                OUTPUT = output_dir
-                sys.argv.pop(sys.argv.index(arg) + 1)
-                sys.argv.remove(arg)
-            else: 
-                print("No file selected... Quitting")
-                help()
+            OUTPUT = sys.argv[index+offset+1]
+            print("Output: " + OUTPUT)
+            sys.argv.remove(OUTPUT)
+            sys.argv.remove(arg)
+            offset -= 2
            
         elif(arg == "--cookie" or arg == "-c"):
             COOKIE = sys.argv[index+offset+1]
+            print("COOKIES: " + COOKIE)
             sys.argv.remove(COOKIE)
             sys.argv.remove(arg)
-            offset -= 1
+            offset -= 2
             
         elif(arg == "--cookie-file"): 
             cookie_dir = sys.argv[index+offset+1]
             if(os.exists(cookie_dir)):
                 with open(cookie_dir, "r") as cookie:
-                    COOKIE = cookie.read()                
+                    COOKIE = cookie.read()
+                    print("COOKIE: " + COOKIE)
             else:
                 print("Cookie file doesn't exist... Quitting")
                 sys.exit()
             sys.argv.remove(cookie_dir)
             sys.argv.remove(arg)
-            offset -= 1 
+            offset -= 2 
 
     if(len(sys.argv) == 4):
         RHOST = sys.argv[1]
@@ -182,7 +191,7 @@ def CheckIfInjectable(response, injections):
             
     return True
 
-def RequestGet(rhost, injection, cookie):
+def RequestGet(rhost, injection, cookie, headers):
     try:
         response = requests.get(rhost, params=injection, cookies=cookie,
                                 allow_redirects=True, timeout=5)
@@ -197,13 +206,13 @@ def RequestGet(rhost, injection, cookie):
         #print("[Returned Cookies: " + str(response.cookies) + " ]") 
         #print(response.content)
 
-        return response
+        return response    
             
     else:
         print("error...")
         return None 
      
-def RequestPost(rhost, injection, cookie):
+def RequestPost(rhost, injection, cookie, headers):
     try:
         response = requests.post(rhost, data=injection, cookies=cookie,
                              allow_redirects=True, timeout=5)
@@ -224,24 +233,24 @@ def RequestPost(rhost, injection, cookie):
         print("error...")
         return None
          
-def Scan(url, requests, cookie): #TODO: Enable ssl
+def Scan(url, requests, cookie, headers, output): #TODO: Enable ssl
     if(TYPE == "get"):
         for injection in requests:
-            response = RequestGet(url, injection, cookie)
+            response = RequestGet(url, injection, cookie, headers)
             if (response != None and CheckIfInjectable(response, injection)):
-                PrintInfo(response, injection, True)
+                PrintResponse(response, injection, True, output)
             else:
-                PrintInfo(response, injection, False)
+                PrintResponse(response, injection, False, output)
 
             response.cookies.clear()
                             
     elif(TYPE == "post"):
         for injection in requests:
-            response = RequestPost(url, injection, cookie)
+            response = RequestPost(url, injection, cookie, headers)
             if (response != None and CheckIfInjectable(response, injection)): 
-                PrintInfo(response, injection, True)
+                PrintResponse(response, injection, True, output)
             else:
-                PrintInfo(response, injection, False)
+                PrintResponse(response, injection, False, output)
                 
             response.cookies.clear()
 
@@ -249,9 +258,9 @@ def Scan(url, requests, cookie): #TODO: Enable ssl
         for cookie_injection in cookies:
             response = RequestGet(url, requests, cookie_injection)
             if(response != None and CheckIfInjectable(response, injection)):
-                PrintInfo(response, cookie_injection, True)
+                PrintResponse(response, cookie_injection, True)
             else:
-                PrintInfo(response, cookie_injection, False)
+                PrintResponse(response, cookie_injection, False)
 
             reponse.cookies.clear()
 
@@ -259,13 +268,40 @@ def Scan(url, requests, cookie): #TODO: Enable ssl
         for url_case in url:
             response = RequestGet(url_case, requests, cookie)
             if(response != None and CheckIfInjectable(response, url_case)):
-                PrintInfo(response, url_case, True)
+                PrintResponse(response, url_case, True)
             else:
-                PrintInfo(response, url_case, False)
+                PrintResponse(response, url_case, False)
 
             response.cookies.clear()
 
-def PrintInfo(response, injection, injectable):
+def WriteResponse(response, injection, injectable, output):
+    if(os.path.exists(output)):
+        output_file = open(output, "a")
+    else:
+        output_file = open(output, "a+")
+    
+    if(injectable == True):
+        output_file.write("POSITIVE: " + str(injection) + "\n")
+    else:
+        output_file.write("NEGATIVE: " + str(injection) + "\n")
+
+    if(VERBOSE[0] == "v"):
+        output_file.write(" ┣ URL: " + str(response.url) + "\n")
+        output_file.write(" ┣ Status Code: "+ str(response.status_code)+" "
+                          +str(response.reason) + "\n") 
+        output_file.write(" ┣ Headers: \n " + str(response.headers)+"\n ┃" + "\n")
+        output_file.write(" ┗ Returned Cookies: " + str(response.cookies)+"\n\n" ) 
+        if(VERBOSE == "vv"):
+            output_file.write("======= RESPONSE =======\n")
+            output_file.write(response.content)
+            output_file.write("========================\n")
+
+    output_file.close()
+    
+def PrintResponse(response, injection, injectable, output):
+    if(OUTPUT != None):
+        WriteResponse(response, injection, injectable, output)
+        
     if(injectable == True):
         print("POSITIVE: " + str(injection))
     else:
@@ -393,7 +429,7 @@ def main():
         MakeInjectionValues(injection_points, 0, non_injections)
 
         print("\n======== Scanning RHOST ========")
-        Scan(url, INJECTIONS, COOKIE)
+        Scan(url, INJECTIONS, COOKIE, HEADERS, OUTPUT)
 
     elif(TYPE in ["cookie"]):
         url, request = GetURL(RHOST)
@@ -404,7 +440,7 @@ def main():
         MakeInjectionValues(injection_points, 0, non_injections)
 
         print("\n======== Scanning RHOST ========")
-        Scan(url, request_dict, INJECTIONS )
+        Scan(url, request_dict, INJECTIONS, HEADERS, OUTPUT)
 
     elif(TYPE in ["status"]):
         url, request = GetURL(RHOST)
@@ -415,7 +451,7 @@ def main():
         MakeURLInjectionValues(injection_points, list(url))
 
         print("\n======== Scanning RHOST ========")
-        Scan(INJECTIONS, request_dict, COOKIE)
+        Scan(INJECTIONS, request_dict, COOKIE, HEADERS, OUTPUT)
         
     
 main()
