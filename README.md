@@ -6,8 +6,10 @@ Currently a work in progress.
 
 Supported: Get, Post value injections, Cookie injection, and Page Discovery.
 
-'''
-    Usage: Fuzzit.py [RHOST] [WORDLIST] [RULE_FILE]
+
+# Usage
+
+    Fuzzit.py [RHOST] [WORDLIST] [RULE_FILE]
 
     RHOST Format: www.url.com/script.php?injection_point=*
         - Mark injection points with a '*'.
@@ -31,5 +33,3 @@ Supported: Get, Post value injections, Cookie injection, and Page Discovery.
     -v, -vv
         - v: Show NEGATIVE requests and headers.
         - vv: Show response page.
-
-'''
