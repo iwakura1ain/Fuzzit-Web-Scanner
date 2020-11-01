@@ -18,17 +18,7 @@ OUTPUT=None
 SSL=False
 TYPE="get"
 
-def help():
-    print("Usage: Fuzzit.py [RHOST] [WORDLIST] [RULE_FILE]")
-    print("RHOST Format: www.url.com/script.php?injection_point=*")
-    print("-t, --type [get/post/cookie/status]")
-    print("-c, --cookie [COOKIE]")
-    print("--cookie-file [FILE]")    
-    print("-o, --output [FILE]")
-    print("-v, -vv")
-        
-    sys.exit()
-        
+
 def GetArgs():
     global RHOST
     global WORDLIST
@@ -110,6 +100,82 @@ def GetArgs():
        print("!!Argument Error!!") 
        help()
 
+
+def help():
+    print("Usage: Fuzzit.py [RHOST] [WORDLIST] [RULE_FILE]")
+
+    print("RHOST Format: www.url.com/script.php?injection_point=*")
+    print("  - Mark injection points with a '*'.")
+    print("  - Input values for non-injection points.")
+    print("  - For status scans, mark a single '*' where WORDLIST will be appended")
+    print("-t, --type [get/post/cookie/status]")
+    print("  - get: Send a get request with values from WORDLIST.")
+    print("  - post: Send a post request with values from WORDLIST.")
+    print("  - cookie: Send a get request with cookie values from WORDLIST.")
+    print("  - status: Check if a url from WORDLIST exists.")
+    
+    print("-c, --cookie [COOKIE]")
+    print("  - Specify cookie.")    
+    print("--cookie-file [FILE]")
+    print("  - Specify cookie from file.")
+    
+    print("-o, --output [FILE]")
+    print("  - Output to FILE")
+    
+    print("-v, -vv")
+    print(" - v: Show NEGATIVE requests and headers.")
+    print(" - vv: Show response page.")
+    
+    sys.exit()
+
+def WriteResponse(response, injection, injectable, output):
+    if(os.path.exists(output)):
+        output_file = open(output, "a")
+    else:
+        output_file = open(output, "a+")
+    
+    if(injectable == True):
+        output_file.write("POSITIVE: " + str(injection) + "\n")
+    elif(injectable == False and VERBOSE[0] == "v"):
+        output_file.write("NEGATIVE: " + str(injection) + "\n")
+
+    if(VERBOSE[0] == "v"):
+        output_file.write(" ┣ URL: " + str(response.url) + "\n")
+        output_file.write(" ┣ Status Code: "+ str(response.status_code)+" "
+                          +str(response.reason) + "\n") 
+        output_file.write(" ┣ Headers: \n " + str(response.headers)+"\n ┃" + "\n")
+        output_file.write(" ┗ Returned Cookies: " + str(response.cookies)+"\n\n" ) 
+        if(VERBOSE == "vv"):
+            output_file.write("======= RESPONSE =======\n")
+            output_file.write(response.content)
+            output_file.write("========================\n")
+
+    output_file.close()
+
+def PrintInjections(injections):
+    print("Injection count: " + str(len(injections)))
+    if(VERBOSE == "vv"):
+        print(injections)
+    
+def PrintResponse(response, injection, injectable, output):
+    if(OUTPUT != None):
+        WriteResponse(response, injection, injectable, output)
+        
+    if(injectable == True):
+        print("POSITIVE: " + str(injection))
+    elif(injectable == False and VERBOSE[0] == "v"):
+        print("NEGATIVE: " + str(injection))
+        
+    if(VERBOSE[0] == "v"):
+        print(" ┣ URL: " + str(response.url))
+        print(" ┣ Status Code: " + str(response.status_code)+" "+str(response.reason)) 
+        print(" ┣ Headers: \n " + str(response.headers)+"\n ┃")
+        print(" ┗ Returned Cookies: " + str(response.cookies)+"\n") 
+        if(VERBOSE == "vv"):
+            print("======= RESPONSE =======")
+            print(response.content)
+            print("========================\n")
+       
 def IsSSL(rhost): #TODO: ssl support
     global SSL
     
@@ -127,8 +193,9 @@ def IsRuleCase(injection, rules_list):
     for rule in rules_list:
         check = True 
         for base_match_case in rule["base"]:
-            if base_match_case not in injection:
+            if base_match_case not in injection: #BUG:can't tell whether "id" vs "id", ">"
                 check = False
+                
         if check == True:
             return rule
 
@@ -153,8 +220,8 @@ def CheckPageOutput(rule_args, response):
 #Matches a string from the response
 def CheckOutput(rule_args, response):
     for string in rule_args:
-        if string not in response.content:
-           return False
+        if string not in response.text:
+            return False
     return True
 
 #Matches the status code of the respone
@@ -174,17 +241,19 @@ def LookupRule(rule, response):
     
     rule_type = rule["type"]
     rule_args = rule[rule_type]
-    
     return check_functions[rule_type](rule_args, response)
 
 def CheckIfInjectable(response, injections): 
     rule_checks = []
 
     for injection in injections.items():
-        rule_type = IsRuleCase(injection, RULES)
+        rule_type = IsRuleCase(injection[1], RULES)
         if(rule_type != None and rule_type not in rule_checks):
             rule_checks.append(rule_type)
 
+    if(len(rule_checks) == 0 ):
+        return False
+    
     for rule in rule_checks:
         if(not LookupRule(rule, response)):
             return False
@@ -200,12 +269,6 @@ def RequestGet(rhost, injection, cookie, headers):
         sys.exit()
         
     if(response != None):
-        #print("Requested: " + response.url)
-        #print(injection)
-        #print("[Status: " + str(response.status_code) + " ]")
-        #print("[Returned Cookies: " + str(response.cookies) + " ]") 
-        #print(response.content)
-
         return response    
             
     else:
@@ -220,13 +283,7 @@ def RequestPost(rhost, injection, cookie, headers):
         print("!!POST ERROR!!")
         sys.exit()        
 
-    if(response != None):
-        #print("Requested: " + response.url)
-        #print(injection)
-        #print("[Status: " + str(response.status_code) + "]") 
-        #print("[Returned Cookies: " + str(response.cookies) + " ]") 
-        #print(response.content)
-            
+    if(response != None):            
         return response
         
     else:
@@ -273,49 +330,6 @@ def Scan(url, requests, cookie, headers, output): #TODO: Enable ssl
                 PrintResponse(response, url_case, False)
 
             response.cookies.clear()
-
-def WriteResponse(response, injection, injectable, output):
-    if(os.path.exists(output)):
-        output_file = open(output, "a")
-    else:
-        output_file = open(output, "a+")
-    
-    if(injectable == True):
-        output_file.write("POSITIVE: " + str(injection) + "\n")
-    else:
-        output_file.write("NEGATIVE: " + str(injection) + "\n")
-
-    if(VERBOSE[0] == "v"):
-        output_file.write(" ┣ URL: " + str(response.url) + "\n")
-        output_file.write(" ┣ Status Code: "+ str(response.status_code)+" "
-                          +str(response.reason) + "\n") 
-        output_file.write(" ┣ Headers: \n " + str(response.headers)+"\n ┃" + "\n")
-        output_file.write(" ┗ Returned Cookies: " + str(response.cookies)+"\n\n" ) 
-        if(VERBOSE == "vv"):
-            output_file.write("======= RESPONSE =======\n")
-            output_file.write(response.content)
-            output_file.write("========================\n")
-
-    output_file.close()
-    
-def PrintResponse(response, injection, injectable, output):
-    if(OUTPUT != None):
-        WriteResponse(response, injection, injectable, output)
-        
-    if(injectable == True):
-        print("POSITIVE: " + str(injection))
-    else:
-        print("NEGATIVE: " + str(injection))
-
-    if(VERBOSE[0] == "v"):
-        print(" ┣ URL: " + str(response.url))
-        print(" ┣ Status Code: " + str(response.status_code)+" "+str(response.reason)) 
-        print(" ┣ Headers: \n " + str(response.headers)+"\n ┃")
-        print(" ┗ Returned Cookies: " + str(response.cookies)+"\n") 
-        if(VERBOSE == "vv"):
-            print("======= RESPONSE =======")
-            print(response.content)
-            print("========================\n")
         
 def GetURL(rhost):
     url = []
@@ -353,7 +367,6 @@ def GetInjectionPoints(input):
             non_injection_points[GetPointName(input, i)] = GetPointValue(input, i)
 
         elif(input[i] != "=" and input[i+1] == "*" and TYPE == "check"):
-            #print("Injection index: " + str(i))
             injection_points.append(str(i))
                
     
@@ -400,23 +413,22 @@ def MakeInjectionValues(injection_points, prev_index, prev_dict):
 
     try:
         if(prev_index >= len(injection_points)):
-            print(prev_dict)
             INJECTIONS.append(prev_dict.copy())
-            
-            return 
+            return
+    
         else:
             for line in WORDLIST:
                 cur_dict = prev_dict.copy()
                 cur_dict[injection_points[prev_index]] = line[:-1]
                 MakeInjectionValues(injection_points, prev_index+1, cur_dict)
-
+                
             return
     except:
         print("!!ERROR!!" + str(sys.exc_info()[0]))
         sys.exit()
 
 def main():
-    print("Fuzzit Web Scanner v0.4.1 by iwakura1ain...")
+    print("Fuzzit Web Scanner v0.4.5 by iwakura1ain...")
     print("======== OPTIONS ========")
     GetArgs()
     
@@ -427,7 +439,8 @@ def main():
 
         print("\n======== Generating Injections ========")
         MakeInjectionValues(injection_points, 0, non_injections)
-
+        PrintInjections(INJECTIONS)
+        
         print("\n======== Scanning RHOST ========")
         Scan(url, INJECTIONS, COOKIE, HEADERS, OUTPUT)
 
@@ -438,7 +451,8 @@ def main():
 
         print("\n======== Generating Injections ========")
         MakeInjectionValues(injection_points, 0, non_injections)
-
+        PrintInjections(INJECTIONS)
+        
         print("\n======== Scanning RHOST ========")
         Scan(url, request_dict, INJECTIONS, HEADERS, OUTPUT)
 
@@ -449,12 +463,14 @@ def main():
 
         print("\n======== Generating Injections ========")
         MakeURLInjectionValues(injection_points, list(url))
-
+        PrintInjections(INJECTIONS)
+        
         print("\n======== Scanning RHOST ========")
         Scan(INJECTIONS, request_dict, COOKIE, HEADERS, OUTPUT)
         
-    
-main()
+
+if __name__ == "__main__":
+    main()
 
 
 
