@@ -1,8 +1,7 @@
 #!/usr/bin/python
 # coding: utf-8
-
-import sys, os
-import requests, simplejson
+import sys, time, threading, os
+import requests, socket, simplejson
 
 #Input:
 RHOST=""
@@ -19,6 +18,160 @@ SSL=False
 TYPE="get"
 
 
+class InjectionCase:
+    def __init__(self, injection_dict):
+        self.injection = injection_dict
+
+        self.rules = self.GetRuleChecks()
+        self.rule_scans, self.rule_args = self.LookupRuleScan(self.rules)
+        self.response = None
+
+        if(self.rules == None):
+            self.result = [False]
+        else:
+            self.result = [False] * len(self.rules)
+        
+            
+    def IsRuleCase(self, injection):
+        best_match_case = None
+        best_match_count = 0
+
+        if(TYPE=="status"): #Only applies to status scans
+            injection = "MatchStatusCode"
+        
+        for rule in RULES:
+            match_count = 0
+            match = True 
+            for base_match_case in rule["base"]:
+                if base_match_case not in injection:
+                    match = False
+                    break
+                else:
+                    match_count += 1
+                    
+            if match == True and match_count > best_match_count:
+                best_match_case =  rule
+                best_match_count = match_count
+                
+        return best_match_case
+    
+    def GetRuleChecks(self): 
+        rules = []
+        
+        for injection in self.injection.items():
+            rule_type = self.IsRuleCase(injection[1])
+            if(rule_type != None and rule_type not in rules):
+                rules.append(rule_type)
+
+        if(len(rules) == 0 ):
+            return None
+        else:
+            return rules
+
+    #Calls the rule-check associated with the rule
+    def LookupRuleScan(self, rules):
+        check_functions = { "MatchStringOutput": CheckOutput
+                            #"MatchStringPage": CheckPageOutput,
+                            #"MatchStatusCode" : MatchStatusCode,
+                            #"ListenOnPort" : ListenOnPort
+                           }
+        
+        if(rules == None):
+            return None, None
+        
+        rule_scans = []
+        rule_args = []
+        for rule in rules:
+            rule_type = rule["type"]
+            rule_scans.append(check_functions[rule_type])
+            rule_args.append(rule[rule_type])
+            
+        return rule_scans, rule_args
+            
+    def Scan(self, url, input, cookie, headers):
+        scan_threads = []
+        result = True
+        
+        if(self.rule_scans == None):
+            print("ERROR: Could not find rule case for " + str(self.injection))
+            self.result[0] = False
+
+            return False
+            
+        if(TYPE == "get"):               
+            for i in range(0,len(self.rules)):
+                thread = threading.Thread(target=self.rule_scans[i], args=(self, i,))
+                scan_threads.append(thread)
+                thread.start()
+                
+            self.response = RequestGet(url, input, cookie, headers)
+            
+        elif(TYPE == "post"):               
+            for i in range(0,len(self.rules)):
+                thread = threading.Thread(target=self.rule_scans[i], args=(self, i,))
+                scan_threads.append(thread)
+                thread.start()
+                
+            self.response = RequestPost(url, input, cookie, headers)
+
+        elif(TYPE == "cookie"):
+            for i in range(0,len(self.rules)):
+                thread = threading.Thread(target=self.rule_scans[i], args=(self, i,))
+                scan_threads.append(thread)
+                thread.start()
+
+            self.response = RequestGet(url, input, cookie, headers)
+
+        elif(TYPE == "status"):
+            thread = threading.Thread(target=self.rule_scans[0], args=(self, i,))
+            thread.start() #Do we really need to start a thread here?
+
+            self.response = RequestGet(url, input, cookie, headers)
+        
+        for i in range(0, len(self.rules)):
+            scan_threads[i].join()
+            if(self.result[i] == False):
+                result = False
+                    
+        return result
+                    
+    def PrintResponse(self):
+        if(OUTPUT != None):
+            self.WriteResponse(OUTPUT)
+        
+        if(False not in self.result):
+            print("POSITIVE: " + str(self.injection))
+        elif(VERBOSE[0] == "v"):
+            print("NEGATIVE: " + str(self.injection))
+        
+        if(VERBOSE[0] == "v" and self.response != None):
+            print(" ┣ URL: " + str(self.response.url))
+            print(" ┣ Status Code: " + str(self.response.status_code)+" "+str(self.response.reason)) 
+            print(" ┣ Headers: \n " + str(self.response.headers)+"\n ┃")
+            print(" ┗ Returned Cookies: " + str(self.response.cookies)+"\n") 
+            if(VERBOSE == "vv"):
+                print("======= RESPONSE =======")
+                print(self.response.content)
+                print("========================\n")
+                
+    def WriteResponse(self, output_dir):
+        with open(output_dir, "a") as output:    
+            if(False not in self.result):
+                output.write("POSITIVE: " + str(self.injection) + "\n")
+            elif(VERBOSE[0] == "v"):
+                output.write("NEGATIVE: " + str(self.injection) + "\n")
+
+            if(VERBOSE[0] == "v"):
+                output.write(" ┣ URL: " + str(self.response.url) + "\n")
+                output.write(" ┣ Status Code: "+ str(self.response.status_code)+" "
+                              +str(response.reason) + "\n") 
+                output.write(" ┣ Headers: \n " + str(self.response.headers)+"\n ┃" + "\n")
+                output.write(" ┗ Returned Cookies: " + str(self.response.cookies)+"\n\n" ) 
+                if(VERBOSE == "vv"):
+                    output.write("======= RESPONSE =======\n")
+                    output.write(self.response.content)
+                    output.write("========================\n")
+                    
 def GetArgs():
     global RHOST
     global WORDLIST
@@ -127,55 +280,12 @@ def help():
     print(" - vv: Show response page.")
     
     sys.exit()
-
-def WriteResponse(response, injection, injectable, output):
-    if(os.path.exists(output)):
-        output_file = open(output, "a")
-    else:
-        output_file = open(output, "a+")
     
-    if(injectable == True):
-        output_file.write("POSITIVE: " + str(injection) + "\n")
-    elif(injectable == False and VERBOSE[0] == "v"):
-        output_file.write("NEGATIVE: " + str(injection) + "\n")
-
-    if(VERBOSE[0] == "v"):
-        output_file.write(" ┣ URL: " + str(response.url) + "\n")
-        output_file.write(" ┣ Status Code: "+ str(response.status_code)+" "
-                          +str(response.reason) + "\n") 
-        output_file.write(" ┣ Headers: \n " + str(response.headers)+"\n ┃" + "\n")
-        output_file.write(" ┗ Returned Cookies: " + str(response.cookies)+"\n\n" ) 
-        if(VERBOSE == "vv"):
-            output_file.write("======= RESPONSE =======\n")
-            output_file.write(response.content)
-            output_file.write("========================\n")
-
-    output_file.close()
-
 def PrintInjections(injections):
     print("Injection count: " + str(len(injections)))
     if(VERBOSE == "vv"):
         print(injections)
-    
-def PrintResponse(response, injection, injectable, output):
-    if(OUTPUT != None):
-        WriteResponse(response, injection, injectable, output)
         
-    if(injectable == True):
-        print("POSITIVE: " + str(injection))
-    elif(injectable == False and VERBOSE[0] == "v"):
-        print("NEGATIVE: " + str(injection))
-        
-    if(VERBOSE[0] == "v"):
-        print(" ┣ URL: " + str(response.url))
-        print(" ┣ Status Code: " + str(response.status_code)+" "+str(response.reason)) 
-        print(" ┣ Headers: \n " + str(response.headers)+"\n ┃")
-        print(" ┗ Returned Cookies: " + str(response.cookies)+"\n") 
-        if(VERBOSE == "vv"):
-            print("======= RESPONSE =======")
-            print(response.content)
-            print("========================\n")
-       
 def IsSSL(rhost): #TODO: ssl support
     global SSL
     
@@ -184,82 +294,75 @@ def IsSSL(rhost): #TODO: ssl support
         print("SSL: Enabled")
     else:
         print("SSL: Disabled")
-
-#Find the rule associated with the injection 
-def IsRuleCase(injection, rules_list):
-    if(TYPE=="status"): #Only applies the status scans
-        injection = "MatchStatusCode"
-        
-    for rule in rules_list:
-        check = True 
-        for base_match_case in rule["base"]:
-            if base_match_case not in injection: #BUG:can't tell whether "id" vs "id", ">"
-                check = False
+    
+#Matches a string from the response
+def CheckOutput(injection_case, i):
+    match_strings = injection_case.rule_args[i]
+    
+    start = time.time()
+    while(time.time() - start < 5):
+        if(injection_case.response != None):
+            for string in match_strings:
+                if string not in injection_case.response.content:
+                    injection_case.result[i] = False
+                    return
                 
-        if check == True:
-            return rule
+            injection_case.result[i] = True
+            return
 
-    return None
+    print("Scan timed out...")
+    injection_case.result[i] = False
+    return
 
-#Matches a string from another page
-def CheckPageOutput(rule_args, response):
+def CheckPageOutut(injection_case, i):
+    url = GetURL(injection_case.rule_args[i][0])[0]
+    match_strings = injection_case.rule_args[i][1:]
     try:
-        page = requests.get(rule_args[0], params=injection, cookies=cookie,
-                            allow_redirects=True, timeout=5)
+        page = requests.get(url, params={}, cookies={},
+                                allow_redirects=True, timeout=5)
 
         page.raise_for_status()
-        for string in rule_args[1:]:
-            if string not in page.content:
-                return False
-        return True
+        for string in match_string:
+            if string not in response.content:
+                injection_case.result[i] = False
+                return
+        
+        injection_case.result[i] = True
+        return
 
-    except HTTPError:
-        print("ERROR: Could not find output page...")
-        return False
-
-#Matches a string from the response
-def CheckOutput(rule_args, response):
-    for string in rule_args:
-        if string not in response.text:
-            return False
-    return True
+    except:
+        injection_case.result[i] = False
+        print("ERROR: Could not find page " + url)
 
 #Matches the status code of the respone
-def MatchStatusCode(rule_args, response):
-    for code in rule_args:
-        if(response.status_code == code):
-            return True
+def MatchStatusCode(injection_case, i):
+    if injection_case.response.status_code in injection_case.rule_args[i]:
+        injection_case.result[i] = True
+    else:
+        injection_case.result[i] = False
 
-    return False
+def ListenOnPort(injection_case, i):
+    args = injection_case.rule_args[i]
+    try:
+         
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(("", args[0]))
+        sck.settimeout(args[1])
+        sock.listen(1)
 
-#Calls the rule-check associated with the rule
-def LookupRule(rule, response):
-    check_functions = { "MatchStringOutput": CheckOutput,
-                        "MatchStringPage": CheckPageOutput,
-                        "MatchStatusCode" : MatchStatusCode
-                       }
-    
-    rule_type = rule["type"]
-    rule_args = rule[rule_type]
-    return check_functions[rule_type](rule_args, response)
-
-def CheckIfInjectable(response, injections): 
-    rule_checks = []
-
-    for injection in injections.items():
-        rule_type = IsRuleCase(injection[1], RULES)
-        if(rule_type != None and rule_type not in rule_checks):
-            rule_checks.append(rule_type)
-
-    if(len(rule_checks) == 0 ):
-        return False
-    
-    for rule in rule_checks:
-        if(not LookupRule(rule, response)):
-            return False
+        if(sock.accept()):
+            injection_case.result[i] = True
+            sock.shutdown(socket.SHUT_RDWR)
+            sock.close()
+            return
             
-    return True
 
+    except socket.timeout:
+        injection_case.result[i] = False
+        sock.shutdown(socket.SHUT_RDWR)
+        sock.close()
+        return
+    
 def RequestGet(rhost, injection, cookie, headers):
     try:
         response = requests.get(rhost, params=injection, cookies=cookie,
@@ -289,48 +392,7 @@ def RequestPost(rhost, injection, cookie, headers):
     else:
         print("error...")
         return None
-         
-def Scan(url, requests, cookie, headers, output): #TODO: Enable ssl
-    if(TYPE == "get"):
-        for injection in requests:
-            response = RequestGet(url, injection, cookie, headers)
-            if (response != None and CheckIfInjectable(response, injection)):
-                PrintResponse(response, injection, True, output)
-            else:
-                PrintResponse(response, injection, False, output)
 
-            response.cookies.clear()
-                            
-    elif(TYPE == "post"):
-        for injection in requests:
-            response = RequestPost(url, injection, cookie, headers)
-            if (response != None and CheckIfInjectable(response, injection)): 
-                PrintResponse(response, injection, True, output)
-            else:
-                PrintResponse(response, injection, False, output)
-                
-            response.cookies.clear()
-
-    elif(TYPE == "cookie"):
-        for cookie_injection in cookies:
-            response = RequestGet(url, requests, cookie_injection)
-            if(response != None and CheckIfInjectable(response, injection)):
-                PrintResponse(response, cookie_injection, True)
-            else:
-                PrintResponse(response, cookie_injection, False)
-
-            reponse.cookies.clear()
-
-    elif(TYPE == "status"):
-        for url_case in url:
-            response = RequestGet(url_case, requests, cookie)
-            if(response != None and CheckIfInjectable(response, url_case)):
-                PrintResponse(response, url_case, True)
-            else:
-                PrintResponse(response, url_case, False)
-
-            response.cookies.clear()
-        
 def GetURL(rhost):
     url = []
     request = []
@@ -428,11 +490,10 @@ def MakeInjectionValues(injection_points, prev_index, prev_dict):
         sys.exit()
 
 def main():
-    print("Fuzzit Web Scanner v0.4.5 by iwakura1ain...")
-    print("======== OPTIONS ========")
+    print("Fuzzit Web Scanner v0.5 by iwakura1ain...")
+    print("======== OPTIONS =====n===")
     GetArgs()
     
-
     if(TYPE in ["get", "post"]):
         url = GetURL(RHOST)[0]
         injection_points, non_injections = GetInjectionPoints(RHOST)
@@ -440,10 +501,16 @@ def main():
         print("\n======== Generating Injections ========")
         MakeInjectionValues(injection_points, 0, non_injections)
         PrintInjections(INJECTIONS)
-        
-        print("\n======== Scanning RHOST ========")
-        Scan(url, INJECTIONS, COOKIE, HEADERS, OUTPUT)
 
+        injections = []
+        for injection_dict in INJECTIONS:
+            injections.append(InjectionCase(injection_dict))
+            
+        print("\n======== Scanning RHOST ========")    
+        for injection in injections:
+            injection.Scan(url, injection.injection, COOKIE, HEADERS)
+            injection.PrintResponse()
+    
     elif(TYPE in ["cookie"]):
         url, request = GetURL(RHOST)
         injection_points, non_injections = GetInjectionPoints(COOKIE)
@@ -467,7 +534,8 @@ def main():
         
         print("\n======== Scanning RHOST ========")
         Scan(INJECTIONS, request_dict, COOKIE, HEADERS, OUTPUT)
-        
+      
+    
 
 if __name__ == "__main__":
     main()
