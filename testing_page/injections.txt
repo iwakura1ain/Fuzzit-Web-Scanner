@@ -1,3 +1,5 @@
-id >> /var/www/html/index.html
-curl localhost:5337
+nope
 cat /etc/passwd
+id
+echo "secretcode!!" >> /var/www/html/index.html
+curl 192.168.123.100:1337

@@ -70,10 +70,10 @@ class InjectionCase:
 
     #Calls the rule-check associated with the rule
     def LookupRuleScan(self, rules):
-        check_functions = { "MatchStringOutput": CheckOutput
-                            #"MatchStringPage": CheckPageOutput,
-                            #"MatchStatusCode" : MatchStatusCode,
-                            #"ListenOnPort" : ListenOnPort
+        check_functions = { "MatchStringOutput": CheckOutput,
+                            "MatchPageOutput": CheckPageOutput,
+                            "MatchStatusCode" : MatchStatusCode,
+                            "ListenOnPort" : ListenOnPort
                            }
         
         if(rules == None):
@@ -314,26 +314,27 @@ def CheckOutput(injection_case, i):
     injection_case.result[i] = False
     return
 
-def CheckPageOutut(injection_case, i):
+def CheckPageOutput(injection_case, i):
     url = GetURL(injection_case.rule_args[i][0])[0]
     match_strings = injection_case.rule_args[i][1:]
-    try:
-        page = requests.get(url, params={}, cookies={},
-                                allow_redirects=True, timeout=5)
 
-        page.raise_for_status()
-        for string in match_string:
-            if string not in response.content:
-                injection_case.result[i] = False
-                return
+    #try:
+    page = requests.get(url, params={}, cookies={},
+                        allow_redirects=True, timeout=5)
+
+    page.raise_for_status()
+    for string in match_strings:
+        if string not in page.content:
+            injection_case.result[i] = False
+            return
         
-        injection_case.result[i] = True
-        return
-
+    injection_case.result[i] = True
+    return
+    """
     except:
         injection_case.result[i] = False
         print("ERROR: Could not find page " + url)
-
+    """
 #Matches the status code of the respone
 def MatchStatusCode(injection_case, i):
     if injection_case.response.status_code in injection_case.rule_args[i]:
@@ -346,16 +347,15 @@ def ListenOnPort(injection_case, i):
     try:
          
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.bind(("", args[0]))
-        sck.settimeout(args[1])
+        sock.bind(("", args[0] ))
+        sock.settimeout(args[1])
         sock.listen(1)
 
         if(sock.accept()):
             injection_case.result[i] = True
             sock.shutdown(socket.SHUT_RDWR)
             sock.close()
-            return
-            
+            return            
 
     except socket.timeout:
         injection_case.result[i] = False
@@ -398,7 +398,7 @@ def GetURL(rhost):
     request = []
     i = 0
 
-    while(rhost[i] != "?" and i < len(rhost)):
+    while(i < len(rhost) and rhost[i] != "?"):
         url.append(rhost[i])
         i += 1
     url_result = "".join(url)
@@ -491,7 +491,7 @@ def MakeInjectionValues(injection_points, prev_index, prev_dict):
 
 def main():
     print("Fuzzit Web Scanner v0.5 by iwakura1ain...")
-    print("======== OPTIONS =====n===")
+    print("======== OPTIONS ========")
     GetArgs()
     
     if(TYPE in ["get", "post"]):
