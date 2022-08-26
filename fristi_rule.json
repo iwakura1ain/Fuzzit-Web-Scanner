@@ -1,0 +1,18 @@
+[
+    {
+        "base" : ["eezeepz"],
+        "type" : ["output", "match"],
+        "match" : ["Login successful"]
+    }, 
+    {
+        "base" : ["keKkeKKeKKeKkEkkEk"],
+        "type" : ["output", "match"],
+        "match" : ["Login successful"]
+    },
+    {
+        "base" : ["nope"],
+        "type" : ["output", "match"], 
+        "match" : ["Login successful"]
+    } 
+    
+]

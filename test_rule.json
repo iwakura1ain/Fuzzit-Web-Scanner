@@ -21,8 +21,8 @@
     },
     {
         "base" : ["nc", "192.168.123.100:1337"],
-        "type" : "ListenPort",
-        "ListenPort" : ["1337"]
+        "type" : "ListenOnPort",
+        "ListenOnPort" : ["1337", 10.0]
     },
     {
         "base" : ["sleep"],
@@ -33,6 +33,6 @@
         "base" : ["MatchStatusCode"],
         "type" : "MatchStatusCode",
         "MatchStatusCode" : [200]
-    },
+    }
     
 ]
